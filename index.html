@@ -289,8 +289,9 @@ function renderResolution(){
   const panel = document.getElementById("resolution-panel");
   const me = playersData[myId];
 
-  // カード公開
-  let cardsHtml = order.map(pid=>{
+  // カード公開（生存者のみ）
+  const alive = order.filter(pid=>playersData[pid]?.isAlive!==false);
+  let cardsHtml = alive.map(pid=>{
     const p = playersData[pid];
     return `<div class="reveal-card">
       <div class="card-face-big">${formatCard(p?.card)}</div>
