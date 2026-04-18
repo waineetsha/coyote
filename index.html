@@ -60,6 +60,7 @@ const screens = {
   waiting:    document.getElementById("screen-waiting"),
   game:       document.getElementById("screen-game"),
   resolution: document.getElementById("screen-resolution"),
+  dealing:    document.getElementById("screen-dealing"),
 };
 function show(name){ Object.values(screens).forEach(s=>s.classList.add("hidden")); screens[name].classList.remove("hidden"); }
 
@@ -242,8 +243,11 @@ function render(){
     return;
   }
 
-  // カード配布中は何もしない（中途半端な状態で描画しない）
-  if(state==="DEALING") return;
+  // カード配布中はローディング表示
+  if(state==="DEALING"){
+    show("dealing");
+    return;
+  }
 
   // ゲーム中
   if(state==="TURN"||state==="ROUND_START"){
@@ -261,7 +265,14 @@ function render(){
 
 function renderGame(){
   const order = roomData.playersOrder || [];
-  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
+  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
+
+  // 全員にカードが配られるまで待機画面を表示
+  const allDealt = alive.every(pid=>playersData[pid]?.card!==null&&playersData[pid]?.card!==undefined);
+  if(!allDealt){
+    show("dealing");
+    return;
+  }
   const turnPid = alive[roomData.turnIndex % alive.length];
   const isMyTurn = turnPid === myId;
   const me = playersData[myId];
@@ -514,7 +525,7 @@ window.doNextRound = async function(){
 
 // ─── ヘルパー ─────────────────────────────────────
 function formatCard(c){
-  if(c===null||c===undefined) return "?";
+  if(c===null||c===undefined) return "—";
   if(c==="X2") return "×2";
   if(c==="MAX0") return "MAX=0";
   if(c==="?") return "?";
@@ -871,6 +882,16 @@ input:focus{ border-color:var(--amber); }
   text-align:center;
 }
 
+/* ══════════════ DEALING SPINNER ══════════════ */
+.dealing-spinner{
+  width:40px;height:40px;
+  border:3px solid rgba(200,146,42,0.2);
+  border-top-color:var(--amber);
+  border-radius:50%;
+  animation:spin 0.8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+
 /* ══════════════ LIFE SELECTOR ══════════════ */
 #life-selector{ margin-bottom:0.25rem; }
 .life-opt{
@@ -1021,6 +1042,15 @@ input:focus{ border-color:var(--amber); }
 <section class="screen hidden" id="screen-resolution">
   <div class="game-title" style="font-size:3rem;text-align:center;">判定</div>
   <div id="resolution-panel"></div>
+</section>
+
+<!-- ══════════════ DEALING ══════════════ -->
+<section class="screen hidden" id="screen-dealing">
+  <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:1rem;">
+    <div class="game-title" style="font-size:3rem;">COYOTE</div>
+    <div style="font-family:'Special Elite',cursive;color:var(--sand);opacity:0.6;letter-spacing:0.2em;font-size:0.9rem;">カードを配っています…</div>
+    <div class="dealing-spinner"></div>
+  </div>
 </section>
 
 </body>
