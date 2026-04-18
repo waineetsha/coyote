@@ -158,9 +158,14 @@ async function startNewGame(order, life=3){
 async function dealRound(startIdx, turnIdx, order, deckOverride=null){
   const rRef = doc(db,"rooms",roomId);
 
-  // 明示的に渡されたデッキ > 既存の山札 > 新規シャッフル
-  let deck = deckOverride !== null ? (deckOverride.length > 0 ? deckOverride : shuffle(CARD_POOL))
-           : (roomData?.deck?.length > 0 ? [...roomData.deck] : shuffle(CARD_POOL));
+  // 明示的に渡されたデッキを使う。空なら新規シャッフル（ゲーム開始 or 山札切れ）
+  // deckOverride=nullの場合はroomData.deckを使う（通常は使わない、常に明示的に渡す）
+  let deck;
+  if(deckOverride !== null){
+    deck = deckOverride.length > 0 ? [...deckOverride] : shuffle(CARD_POOL);
+  } else {
+    deck = roomData?.deck?.length > 0 ? [...roomData.deck] : shuffle(CARD_POOL);
+  }
   const alive = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
 
   // カードを先に抜いてからdeckを保存
@@ -475,10 +480,16 @@ window.doNextRound = async function(){
   // 次ラウンド: 敗者 or 敗者の次の生存者からスタート
   const rRef = doc(db,"rooms",roomId);
   const order = roomData.playersOrder||[];
-  // プレイヤー最新データ再取得
-  const psSnap = await getDocs(collection(rRef,"players"));
+
+  // Firestoreから最新状態を取得（roomDataが古い可能性があるため）
+  const [latestRoom, psSnap] = await Promise.all([
+    getDoc(rRef),
+    getDocs(collection(rRef,"players")),
+  ]);
   playersData={};
   psSnap.forEach(d=>{ playersData[d.id]=d.data(); });
+  const latestDeck = latestRoom.exists() ? (latestRoom.data().deck||[]) : [];
+
   const alive = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
 
   // orderの中での敗者位置から、次の生存者を探す
@@ -492,7 +503,7 @@ window.doNextRound = async function(){
   if(alive.includes(roomData.loserPlayerId)) startPid = roomData.loserPlayerId;
 
   const startIdx = alive.indexOf(startPid);
-  await dealRound(startIdx, startIdx, order);
+  await dealRound(startIdx, startIdx, order, latestDeck);
 };
 
 // ─── ヘルパー ─────────────────────────────────────
