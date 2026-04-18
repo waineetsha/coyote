@@ -8,24 +8,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@400;700&family=Special+Elite&display=swap" rel="stylesheet">
 
 <!-- Firebase -->
-<!-- ★ 設定はこのscriptタグの中だけ編集してください ★ -->
-<script>
-window.FIREBASE_CONFIG = {
-  apiKey:            "YOUR_API_KEY",
-  authDomain:        "YOUR_PROJECT.firebaseapp.com",
-  projectId:         "YOUR_PROJECT_ID",
-  storageBucket:     "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId:             "YOUR_APP_ID"
-};
-</script>
-
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, collection, setDoc, getDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion, arrayRemove, deleteDoc, getDocs }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-const app = initializeApp(window.FIREBASE_CONFIG);
+import firebaseConfig from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 
 // ─── カード定義 ───────────────────────────────────
