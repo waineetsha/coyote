@@ -13,19 +13,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { getFirestore, doc, collection, setDoc, getDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion, arrayRemove, deleteDoc, getDocs }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// ════════════════════════════════════════════════
-// ★ ここにあなたのFirebase設定を貼り付けてください ★
-// ════════════════════════════════════════════════
-const firebaseConfig = {
-  apiKey: "AIzaSyAO5TuFOawHyQAA5hkKAPO5s8JdUZW1SfI",
-  authDomain: "who-ate--the-cheese.firebaseapp.com",
-  projectId: "who-ate--the-cheese",
-  storageBucket: "who-ate--the-cheese.firebasestorage.app",
-  messagingSenderId: "135374886454",
-  appId: "1:135374886454:web:4c90390dcc64763b872a97",
-  measurementId: "G-W6CJMF0NPX"
-};
-// ════════════════════════════════════════════════
+import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
@@ -392,8 +380,15 @@ async function resolveRound(){
     if(typeof drawnCard==="number") total+=drawnCard;
   }
 
-  // MAX0適用
-  if(hasMAX0 && maxVal>0) total -= maxVal;
+  // MAX0適用: 最大値と同じ数値のカードをすべて0扱い（枚数分引く）
+  if(hasMAX0 && maxVal > 0){
+    for(const pid of alive){
+      const c = playersData[pid]?.card;
+      if(c === maxVal) total -= maxVal;
+    }
+    // ?カードで引いたカードも最大値なら対象
+    if(drawnCard === maxVal) total -= maxVal;
+  }
 
   // X2適用
   if(hasX2) total*=2;
