@@ -178,7 +178,21 @@ async function dealRound(startIdx, turnIdx, order, deckOverride=null){
   const latestSnap = await getDoc(rRef);
   const latestRound = latestSnap.exists() ? (latestSnap.data().round||0) : 0;
 
-  // deck保存（配布済みで枚数が減った状態）とラウンド情報を先に書く
+  // 先にstateをDEALINGにして二重配布を防ぐ
+  await updateDoc(rRef,{ state:"DEALING" });
+
+  // 各プレイヤーにカード配布（全員終わってからTURNに遷移）
+  for(const pid of alive){
+    await setDoc(doc(collection(rRef,"players"),pid),{card:cards[pid]},{merge:true});
+  }
+  // 脱落者のカードをnullに
+  for(const pid of order){
+    if(!alive.includes(pid)){
+      await setDoc(doc(collection(rRef,"players"),pid),{card:null},{merge:true});
+    }
+  }
+
+  // カード配布完了後にTURNへ遷移
   await updateDoc(rRef,{
     state:"TURN",
     deck,
@@ -193,17 +207,6 @@ async function dealRound(startIdx, turnIdx, order, deckOverride=null){
     round: latestRound + 1,
     playersOrder: order,
   });
-
-  // 各プレイヤーにカード配布
-  for(const pid of alive){
-    await setDoc(doc(collection(rRef,"players"),pid),{card:cards[pid]},{merge:true});
-  }
-  // 脱落者のカードをnullに
-  for(const pid of order){
-    if(!alive.includes(pid)){
-      await setDoc(doc(collection(rRef,"players"),pid),{card:null},{merge:true});
-    }
-  }
 }
 
 // ─── ウォッチ ─────────────────────────────────────
@@ -238,6 +241,9 @@ function render(){
     show("waiting");
     return;
   }
+
+  // カード配布中は何もしない（中途半端な状態で描画しない）
+  if(state==="DEALING") return;
 
   // ゲーム中
   if(state==="TURN"||state==="ROUND_START"){
