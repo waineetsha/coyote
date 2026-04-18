@@ -149,22 +149,25 @@ async function startNewGame(order, life=3){
   for(const pid of order){
     await setDoc(doc(collection(rRef,"players"),pid),{life,isAlive:true},{merge:true});
   }
+  // ゲーム開始時は山札をリセット
+  await updateDoc(rRef,{deck:[], round:0});
   await dealRound(0, 0, order);
 }
 
 async function dealRound(startIdx, turnIdx, order){
   const rRef = doc(db,"rooms",roomId);
-  // RESETカード処理: 今は毎ラウンド再shuffle
-  let deck = shuffle(CARD_POOL);
-  const alive = order.filter(pid=>playersData[pid]?.isAlive!==false);
+
+  // 既存の山札を引き継ぐ。なければ新しくシャッフル（1ラウンド目 or RESET後）
+  let deck = (roomData?.deck?.length > 0) ? [...roomData.deck] : shuffle(CARD_POOL);
+  const alive = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
+
+  // カードを先に抜いてからdeckを保存
   const cards={};
   for(const pid of alive){
-    cards[pid]=deck.pop();
+    cards[pid] = deck.pop();
   }
-  // 各プレイヤーにカード配布
-  for(const pid of alive){
-    await setDoc(doc(collection(rRef,"players"),pid),{card:cards[pid]},{merge:true});
-  }
+
+  // deck保存（配布済みで枚数が減った状態）とラウンド情報を先に書く
   await updateDoc(rRef,{
     state:"TURN",
     deck,
@@ -179,6 +182,17 @@ async function dealRound(startIdx, turnIdx, order){
     round: (roomData?.round||0)+1,
     playersOrder: order,
   });
+
+  // 各プレイヤーにカード配布
+  for(const pid of alive){
+    await setDoc(doc(collection(rRef,"players"),pid),{card:cards[pid]},{merge:true});
+  }
+  // 脱落者のカードをnullに
+  for(const pid of order){
+    if(!alive.includes(pid)){
+      await setDoc(doc(collection(rRef,"players"),pid),{card:null},{merge:true});
+    }
+  }
 }
 
 // ─── ウォッチ ─────────────────────────────────────
@@ -378,10 +392,11 @@ async function resolveRound(){
     else { total+=c; if(c>maxVal)maxVal=c; }
   }
 
-  // ?処理
+  // ?処理: 実際の山札から1枚引く
+  let currentDeck = [...(roomData.deck||[])];
   if(hasQuestion){
-    const deck2=shuffle(CARD_POOL);
-    drawnCard=deck2[0];
+    if(currentDeck.length === 0) currentDeck = shuffle(CARD_POOL); // 山札切れなら再構築
+    drawnCard = currentDeck.pop();
     if(typeof drawnCard==="number") total+=drawnCard;
   }
 
@@ -404,10 +419,8 @@ async function resolveRound(){
   // 敗者判定
   let loserPid;
   if(total >= call){
-    // コヨーテ側（宣言への挑戦者）負け
     loserPid = coyotePid;
   } else {
-    // 最後の宣言者負け（turnIndexの前）
     const declIdx = (roomData.turnIndex - 1 + alive.length) % alive.length;
     loserPid = alive[declIdx];
   }
@@ -419,19 +432,22 @@ async function resolveRound(){
   await setDoc(doc(collection(rRef,"players"),loserPid),{life:newLife,isAlive},{merge:true});
 
   // 生存確認
-  const survivors = alive.filter(pid=>pid!==loserPid||(isAlive));
-  const stillAlive = survivors.filter(pid=>{
+  const stillAlive = alive.filter(pid=>{
     if(pid===loserPid) return isAlive;
-    return playersData[pid]?.isAlive!==false;
+    return true;
   });
 
   const nextState = stillAlive.length<=1 ? "GAME_END" : "ROUND_END";
+
+  // RESETカードがあった場合はラウンド後に山札を再構築
+  const nextDeck = hasReset ? shuffle(CARD_POOL) : currentDeck;
 
   await updateDoc(rRef,{
     state:nextState,
     resolvedTotal:total,
     drawnCard:drawnCard,
     loserPlayerId:loserPid,
+    deck: nextDeck,
   });
 }
 
@@ -443,16 +459,26 @@ window.doNextRound = async function(){
     await updateDoc(rRef,{state:"WAITING"});
     return;
   }
-  // 次ラウンド: 敗者からスタート
+  // 次ラウンド: 敗者 or 敗者の次の生存者からスタート
   const rRef = doc(db,"rooms",roomId);
   const order = roomData.playersOrder||[];
   // プレイヤー最新データ再取得
   const psSnap = await getDocs(collection(rRef,"players"));
   playersData={};
   psSnap.forEach(d=>{ playersData[d.id]=d.data(); });
-  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
-  const loserIdx = alive.indexOf(roomData.loserPlayerId);
-  const startIdx = loserIdx>=0 ? loserIdx : 0;
+  const alive = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
+
+  // orderの中での敗者位置から、次の生存者を探す
+  const loserOrderIdx = order.indexOf(roomData.loserPlayerId);
+  let startPid = alive[0]; // デフォルト
+  for(let i=1; i<=order.length; i++){
+    const candidate = order[(loserOrderIdx + i) % order.length];
+    if(alive.includes(candidate)){ startPid = candidate; break; }
+  }
+  // 敗者自身がまだ生存している場合は敗者から
+  if(alive.includes(roomData.loserPlayerId)) startPid = roomData.loserPlayerId;
+
+  const startIdx = alive.indexOf(startPid);
   await dealRound(startIdx, startIdx, order);
 };
 
