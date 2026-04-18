@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>コヨーテ — Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@400;700&family=Special+Elite&display=swap" rel="stylesheet">
+
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, collection, setDoc, getDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion, arrayRemove, deleteDoc, getDocs }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ════════════════════════════════════════════════
+// ★ ここにあなたのFirebase設定を貼り付けてください ★
+// ════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAO5TuFOawHyQAA5hkKAPO5s8JdUZW1SfI",
+  authDomain: "who-ate--the-cheese.firebaseapp.com",
+  projectId: "who-ate--the-cheese",
+  storageBucket: "who-ate--the-cheese.firebasestorage.app",
+  messagingSenderId: "135374886454",
+  appId: "1:135374886454:web:4c90390dcc64763b872a97",
+  measurementId: "G-W6CJMF0NPX"
+};
+// ════════════════════════════════════════════════
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+// ─── カード定義 ───────────────────────────────────
+const CARD_POOL = [
+  ...Array(1).fill(20),
+  ...Array(2).fill(15),
+  ...Array(3).fill(10),
+  ...Array(4).fill(5),
+  ...Array(4).fill(4),
+  ...Array(4).fill(3),
+  ...Array(4).fill(2),
+  ...Array(4).fill(1),
+  ...Array(4).fill(0),
+  ...Array(2).fill(-5),
+  ...Array(1).fill(-10),
+  "X2","MAX0","?","RESET"
+];
+
+// ─── ユーティリティ ───────────────────────────────
+function shuffle(arr){
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+function genId(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
+
+// ─── アプリ状態 ───────────────────────────────────
+let myId = sessionStorage.getItem("coyote_pid") || genId();
+sessionStorage.setItem("coyote_pid", myId);
+let myName = "";
+let roomId  = "";
+let roomUnsub = null;
+let roomData  = null;
+let playersData = {};
+
+// ─── DOM ─────────────────────────────────────────
+const screens = {
+  lobby:      document.getElementById("screen-lobby"),
+  waiting:    document.getElementById("screen-waiting"),
+  game:       document.getElementById("screen-game"),
+  resolution: document.getElementById("screen-resolution"),
+};
+function show(name){ Object.values(screens).forEach(s=>s.classList.add("hidden")); screens[name].classList.remove("hidden"); }
+
+// ─── ロビー ───────────────────────────────────────
+document.getElementById("btn-create").addEventListener("click", async()=>{
+  myName = document.getElementById("inp-name").value.trim();
+  if(!myName){ shake("inp-name"); return; }
+  roomId = genId();
+  const rRef = doc(db,"rooms",roomId);
+  const pRef = doc(collection(rRef,"players"),myId);
+  await setDoc(rRef,{
+    state:"WAITING", playersOrder:[], turnIndex:0, startPlayerIndex:0,
+    currentCall:0, previousCall:0, coyotePlayerId:null,
+    deck:[], discard:[], drawnCard:null, round:0, createdAt:serverTimestamp()
+  });
+  await setDoc(pRef,{name:myName,card:null,life:3,isAlive:true,joinedAt:serverTimestamp()});
+  await updateDoc(rRef,{playersOrder:arrayUnion(myId)});
+  subscribeRoom();
+  document.getElementById("room-code").textContent = roomId;
+  show("waiting");
+});
+
+document.getElementById("btn-join").addEventListener("click", async()=>{
+  myName = document.getElementById("inp-name").value.trim();
+  const code = document.getElementById("inp-room").value.trim().toUpperCase();
+  if(!myName){ shake("inp-name"); return; }
+  if(!code){ shake("inp-room"); return; }
+  roomId = code;
+  const rRef = doc(db,"rooms",roomId);
+  const snap = await getDoc(rRef);
+  if(!snap.exists()){ alert("ルームが見つかりません"); return; }
+  const pRef = doc(collection(rRef,"players"),myId);
+  const ps = await getDoc(pRef);
+  if(!ps.exists()){
+    await setDoc(pRef,{name:myName,card:null,life:3,isAlive:true,joinedAt:serverTimestamp()});
+    await updateDoc(rRef,{playersOrder:arrayUnion(myId)});
+  }
+  subscribeRoom();
+  document.getElementById("room-code").textContent = roomId;
+  show("waiting");
+});
+
+document.getElementById("btn-copy").addEventListener("click",()=>{
+  navigator.clipboard.writeText(roomId).then(()=>{
+    const b=document.getElementById("btn-copy");
+    b.textContent="コピー済！"; setTimeout(()=>b.textContent="コピー",1500);
+  });
+});
+
+// ─── ゲーム開始 ──────────────────────────────────
+document.getElementById("btn-start").addEventListener("click", async()=>{
+  const order = roomData.playersOrder;
+  if(order.length < 2){ alert("2人以上必要です"); return; }
+  await startNewGame(order);
+});
+
+async function startNewGame(order){
+  const rRef = doc(db,"rooms",roomId);
+  // 全員ライフリセット
+  for(const pid of order){
+    await setDoc(doc(collection(rRef,"players"),pid),{life:3,isAlive:true},{merge:true});
+  }
+  await dealRound(0, 0, order);
+}
+
+async function dealRound(startIdx, turnIdx, order){
+  const rRef = doc(db,"rooms",roomId);
+  // RESETカード処理: 今は毎ラウンド再shuffle
+  let deck = shuffle(CARD_POOL);
+  const alive = order.filter(pid=>playersData[pid]?.isAlive!==false);
+  const cards={};
+  for(const pid of alive){
+    cards[pid]=deck.pop();
+  }
+  // 各プレイヤーにカード配布
+  for(const pid of alive){
+    await setDoc(doc(collection(rRef,"players"),pid),{card:cards[pid]},{merge:true});
+  }
+  await updateDoc(rRef,{
+    state:"TURN",
+    deck,
+    discard:[],
+    drawnCard:null,
+    currentCall:0,
+    previousCall:0,
+    coyotePlayerId:null,
+    turnIndex: turnIdx,
+    startPlayerIndex: startIdx,
+    round: (roomData?.round||0)+1,
+    playersOrder: order,
+  });
+}
+
+// ─── ウォッチ ─────────────────────────────────────
+function subscribeRoom(){
+  if(roomUnsub) roomUnsub();
+  const rRef = doc(db,"rooms",roomId);
+  roomUnsub = onSnapshot(rRef, async snap=>{
+    if(!snap.exists()) return;
+    roomData = snap.data();
+    // プレイヤー一覧取得
+    const psSnap = await getDocs(collection(rRef,"players"));
+    playersData={};
+    psSnap.forEach(d=>{ playersData[d.id]=d.data(); });
+    render();
+  });
+}
+
+// ─── レンダリング ─────────────────────────────────
+function render(){
+  if(!roomData) return;
+  const state = roomData.state;
+  const order = roomData.playersOrder || [];
+
+  // 待合室
+  if(state==="WAITING"){
+    const ul=document.getElementById("waiting-players");
+    ul.innerHTML=order.map(pid=>`<li>${playersData[pid]?.name||pid}</li>`).join("");
+    // 全員が参加しているか（自分がいるか）
+    const isCreator = order[0]===myId;
+    document.getElementById("btn-start").style.display=isCreator?"block":"none";
+    show("waiting");
+    return;
+  }
+
+  // ゲーム中
+  if(state==="TURN"||state==="ROUND_START"){
+    renderGame();
+    show("game");
+    return;
+  }
+
+  if(state==="RESOLUTION"||state==="ROUND_END"||state==="GAME_END"){
+    renderResolution();
+    show("resolution");
+    return;
+  }
+}
+
+function renderGame(){
+  const order = roomData.playersOrder || [];
+  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
+  const turnPid = alive[roomData.turnIndex % alive.length];
+  const isMyTurn = turnPid === myId;
+  const me = playersData[myId];
+
+  // 自分のカード（見えない）
+  document.getElementById("my-card-back").textContent = "？";
+  document.getElementById("my-name-tag").textContent  = me?.name||"";
+  renderHearts("my-hearts", me?.life||0);
+
+  // 他プレイヤーカード
+  const othersDiv = document.getElementById("others-cards");
+  othersDiv.innerHTML="";
+  for(const pid of alive){
+    if(pid===myId) continue;
+    const p = playersData[pid];
+    const card = p?.card;
+    const div = document.createElement("div");
+    div.className="player-card"+(turnPid===pid?" active-turn":"");
+    div.innerHTML=`
+      <div class="card-face">${formatCard(card)}</div>
+      <div class="player-label">${p?.name||pid}</div>
+      <div class="hearts">${heartsHtml(p?.life||0)}</div>
+    `;
+    othersDiv.appendChild(div);
+  }
+
+  // 現在の宣言
+  document.getElementById("current-call").textContent =
+    roomData.currentCall > 0 ? roomData.currentCall : "—";
+
+  // ターン表示
+  document.getElementById("turn-indicator").textContent =
+    isMyTurn ? "🤠 あなたのターン" : `${playersData[turnPid]?.name||""}のターン…`;
+
+  // アクションパネル
+  const panel = document.getElementById("action-panel");
+  panel.innerHTML="";
+  if(isMyTurn){
+    const minCall = roomData.currentCall > 0 ? roomData.currentCall+1 : 1;
+    panel.innerHTML=`
+      <div class="call-row">
+        <button class="btn-secondary" onclick="adjustCall(-1)">▼</button>
+        <input type="number" id="call-input" value="${minCall}" min="${minCall}" class="call-input">
+        <button class="btn-secondary" onclick="adjustCall(1)">▲</button>
+      </div>
+      <button class="btn-primary" onclick="doCall()">宣言する</button>
+      ${roomData.currentCall>0?'<button class="btn-danger" onclick="doCoyote()">🐺 コヨーテ！</button>':""}
+    `;
+  } else {
+    panel.innerHTML=`<p class="waiting-msg">他のプレイヤーを待っています…</p>`;
+  }
+}
+
+function renderResolution(){
+  const state = roomData.state;
+  const order = roomData.playersOrder || [];
+  const panel = document.getElementById("resolution-panel");
+  const me = playersData[myId];
+
+  // カード公開
+  let cardsHtml = order.map(pid=>{
+    const p = playersData[pid];
+    return `<div class="reveal-card">
+      <div class="card-face-big">${formatCard(p?.card)}</div>
+      <div>${p?.name||pid}</div>
+    </div>`;
+  }).join("");
+
+  let drawnHtml = "";
+  if(roomData.drawnCard !== null && roomData.drawnCard !== undefined){
+    drawnHtml = `<div class="drawn-info">?カード → <strong>${formatCard(roomData.drawnCard)}</strong></div>`;
+  }
+
+  let resultHtml = "";
+  if(state==="RESOLUTION"||state==="ROUND_END"||state==="GAME_END"){
+    const loser = roomData.loserPlayerId;
+    const loserName = loser ? (playersData[loser]?.name||loser) : "?";
+    const call = roomData.currentCall;
+    const total = roomData.resolvedTotal;
+    resultHtml = `
+      <div class="result-box">
+        <div>宣言値: <strong>${call}</strong> / 合計: <strong>${total}</strong></div>
+        <div class="loser-msg">💀 ${loserName} がライフを失った</div>
+      </div>`;
+  }
+
+  if(state==="GAME_END"){
+    const winner = order.find(pid=>playersData[pid]?.isAlive!==false&&playersData[pid]?.life>0);
+    resultHtml += `<div class="winner-msg">🏆 ${playersData[winner]?.name||"?"}の勝利！</div>`;
+    panel.innerHTML=`${cardsHtml}${drawnHtml}${resultHtml}
+      <button class="btn-primary" onclick="doNextRound()" style="margin-top:1rem">ロビーへ</button>`;
+    return;
+  }
+
+  panel.innerHTML=`${cardsHtml}${drawnHtml}${resultHtml}
+    <button class="btn-primary" onclick="doNextRound()">次のラウンドへ</button>`;
+}
+
+// ─── アクション ───────────────────────────────────
+window.adjustCall = function(delta){
+  const inp = document.getElementById("call-input");
+  const min = parseInt(inp.min)||1;
+  inp.value = Math.max(min, (parseInt(inp.value)||min)+delta);
+};
+
+window.doCall = async function(){
+  const val = parseInt(document.getElementById("call-input").value);
+  const min = roomData.currentCall > 0 ? roomData.currentCall+1 : 1;
+  if(val < min){ alert(`${min}以上を宣言してください`); return; }
+  const rRef = doc(db,"rooms",roomId);
+  const order = roomData.playersOrder||[];
+  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
+  const nextTurn = (roomData.turnIndex+1)%alive.length;
+  await updateDoc(rRef,{previousCall:roomData.currentCall, currentCall:val, turnIndex:nextTurn});
+};
+
+window.doCoyote = async function(){
+  if(!confirm("コヨーテ！を宣言しますか？")) return;
+  const rRef = doc(db,"rooms",roomId);
+  await updateDoc(rRef,{coyotePlayerId:myId, state:"RESOLUTION"});
+  await resolveRound();
+};
+
+async function resolveRound(){
+  const rRef = doc(db,"rooms",roomId);
+  const order = roomData.playersOrder||[];
+  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
+
+  // カード収集
+  let total = 0;
+  let hasX2=false, hasMAX0=false, hasQuestion=false, hasReset=false;
+  let maxVal=-Infinity;
+  let drawnCard=null;
+
+  for(const pid of alive){
+    const c = playersData[pid]?.card;
+    if(c==="X2") hasX2=true;
+    else if(c==="MAX0") hasMAX0=true;
+    else if(c==="?") hasQuestion=true;
+    else if(c==="RESET") hasReset=true;
+    else { total+=c; if(c>maxVal)maxVal=c; }
+  }
+
+  // ?処理
+  if(hasQuestion){
+    const deck2=shuffle(CARD_POOL);
+    drawnCard=deck2[0];
+    if(typeof drawnCard==="number") total+=drawnCard;
+  }
+
+  // MAX0適用
+  if(hasMAX0 && maxVal>0) total -= maxVal;
+
+  // X2適用
+  if(hasX2) total*=2;
+
+  const call = roomData.currentCall;
+  const coyotePid = roomData.coyotePlayerId;
+
+  // 敗者判定
+  let loserPid;
+  if(total >= call){
+    // コヨーテ側（宣言への挑戦者）負け
+    loserPid = coyotePid;
+  } else {
+    // 最後の宣言者負け（turnIndexの前）
+    const declIdx = (roomData.turnIndex - 1 + alive.length) % alive.length;
+    loserPid = alive[declIdx];
+  }
+
+  // ライフ減算
+  const loserData = playersData[loserPid];
+  const newLife = (loserData?.life||1)-1;
+  const isAlive = newLife > 0;
+  await setDoc(doc(collection(rRef,"players"),loserPid),{life:newLife,isAlive},{merge:true});
+
+  // 生存確認
+  const survivors = alive.filter(pid=>pid!==loserPid||(isAlive));
+  const stillAlive = survivors.filter(pid=>{
+    if(pid===loserPid) return isAlive;
+    return playersData[pid]?.isAlive!==false;
+  });
+
+  const nextState = stillAlive.length<=1 ? "GAME_END" : "ROUND_END";
+
+  await updateDoc(rRef,{
+    state:nextState,
+    resolvedTotal:total,
+    drawnCard:drawnCard,
+    loserPlayerId:loserPid,
+  });
+}
+
+window.doNextRound = async function(){
+  const state = roomData.state;
+  if(state==="GAME_END"){
+    // ロビーへ
+    const rRef = doc(db,"rooms",roomId);
+    await updateDoc(rRef,{state:"WAITING"});
+    return;
+  }
+  // 次ラウンド: 敗者からスタート
+  const rRef = doc(db,"rooms",roomId);
+  const order = roomData.playersOrder||[];
+  // プレイヤー最新データ再取得
+  const psSnap = await getDocs(collection(rRef,"players"));
+  playersData={};
+  psSnap.forEach(d=>{ playersData[d.id]=d.data(); });
+  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
+  const loserIdx = alive.indexOf(roomData.loserPlayerId);
+  const startIdx = loserIdx>=0 ? loserIdx : 0;
+  await dealRound(startIdx, startIdx, order);
+};
+
+// ─── ヘルパー ─────────────────────────────────────
+function formatCard(c){
+  if(c===null||c===undefined) return "?";
+  if(c==="X2") return "×2";
+  if(c==="MAX0") return "MAX=0";
+  if(c==="?") return "?";
+  if(c==="RESET") return "RESET";
+  return c;
+}
+function heartsHtml(n){
+  return Array(3).fill(0).map((_,i)=>
+    `<span class="${i<n?'heart':'heart empty'}">♥</span>`).join("");
+}
+function renderHearts(id,n){
+  document.getElementById(id).innerHTML=heartsHtml(n);
+}
+function shake(id){
+  const el=document.getElementById(id);
+  el.classList.add("shake");
+  setTimeout(()=>el.classList.remove("shake"),500);
+}
+
+// ─── 初期表示 ─────────────────────────────────────
+show("lobby");
+</script>
+
+<style>
+/* ══════════════ RESET ══════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;width:100%;}
+.hidden{display:none!important;}
+
+/* ══════════════ VARIABLES ══════════════ */
+:root{
+  --sand:   #e8d5a3;
+  --amber:  #c8922a;
+  --rust:   #a84b2f;
+  --night:  #0d0a05;
+  --dusk:   #1a1208;
+  --mesa:   #2d1f0e;
+  --coyote: #d4813a;
+  --bone:   #f0e6cc;
+  --danger: #c0392b;
+  --green:  #2e7d32;
+}
+
+/* ══════════════ BASE ══════════════ */
+body{
+  background: var(--night);
+  color: var(--bone);
+  font-family: 'Noto Sans JP', sans-serif;
+  min-height:100vh;
+  overflow-x:hidden;
+  background-image:
+    radial-gradient(ellipse at 20% 80%, rgba(200,146,42,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 10%, rgba(168,75,47,0.1) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+}
+
+/* ══════════════ TITLE ══════════════ */
+.game-title{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:clamp(3.5rem,10vw,7rem);
+  letter-spacing:0.1em;
+  color:var(--coyote);
+  text-shadow: 0 0 40px rgba(212,129,58,0.5), 3px 3px 0 var(--rust);
+  line-height:1;
+}
+.game-subtitle{
+  font-family:'Special Elite',cursive;
+  color:var(--sand);
+  letter-spacing:0.3em;
+  font-size:0.85rem;
+  margin-top:0.3rem;
+  opacity:0.7;
+}
+
+/* ══════════════ SCREENS ══════════════ */
+.screen{
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:2rem 1rem;
+  gap:1.5rem;
+}
+
+/* ══════════════ LOBBY ══════════════ */
+#screen-lobby .card-box{
+  background: rgba(29,18,8,0.85);
+  border:1px solid rgba(200,146,42,0.3);
+  border-radius:4px;
+  padding:2rem 2.5rem;
+  width:min(420px,100%);
+  box-shadow: 0 0 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(200,146,42,0.1);
+  display:flex;
+  flex-direction:column;
+  gap:1rem;
+}
+.inp-label{
+  font-size:0.75rem;
+  letter-spacing:0.15em;
+  color:var(--sand);
+  opacity:0.7;
+  text-transform:uppercase;
+  margin-bottom:0.25rem;
+}
+input[type=text],input[type=number]{
+  width:100%;
+  background:rgba(0,0,0,0.4);
+  border:1px solid rgba(200,146,42,0.25);
+  border-radius:3px;
+  color:var(--bone);
+  font-family:'Noto Sans JP',sans-serif;
+  font-size:1rem;
+  padding:0.6rem 0.8rem;
+  outline:none;
+  transition:border-color 0.2s;
+}
+input:focus{ border-color:var(--amber); }
+.divider{
+  display:flex;align-items:center;gap:1rem;
+  color:rgba(200,146,42,0.4);font-size:0.75rem;letter-spacing:0.2em;
+}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(200,146,42,0.2);}
+.join-row{ display:flex;gap:0.5rem; }
+.join-row input{ flex:1; }
+
+/* ══════════════ BUTTONS ══════════════ */
+.btn-primary{
+  background: linear-gradient(135deg, var(--amber), var(--rust));
+  border:none;border-radius:3px;
+  color:#fff;font-family:'Bebas Neue',sans-serif;
+  font-size:1.3rem;letter-spacing:0.15em;
+  padding:0.7rem 2rem;cursor:pointer;
+  width:100%;
+  transition:opacity 0.15s,transform 0.1s;
+  box-shadow:0 4px 20px rgba(168,75,47,0.4);
+}
+.btn-primary:hover{opacity:0.9;transform:translateY(-1px);}
+.btn-primary:active{transform:translateY(1px);}
+
+.btn-secondary{
+  background:rgba(200,146,42,0.15);
+  border:1px solid rgba(200,146,42,0.3);
+  border-radius:3px;color:var(--sand);
+  font-size:1.2rem;padding:0.4rem 0.9rem;
+  cursor:pointer;transition:background 0.15s;
+}
+.btn-secondary:hover{background:rgba(200,146,42,0.25);}
+
+.btn-danger{
+  background:rgba(192,57,43,0.2);
+  border:1px solid rgba(192,57,43,0.5);
+  border-radius:3px;color:#e74c3c;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:1.4rem;letter-spacing:0.1em;
+  padding:0.7rem 1.5rem;cursor:pointer;width:100%;
+  transition:background 0.15s,transform 0.1s;
+  animation:pulse-danger 1.8s infinite;
+}
+.btn-danger:hover{background:rgba(192,57,43,0.35);transform:scale(1.02);}
+@keyframes pulse-danger{
+  0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,0.4);}
+  50%{box-shadow:0 0 0 8px rgba(192,57,43,0);}
+}
+
+/* ══════════════ WAITING ══════════════ */
+#screen-waiting .card-box{
+  background:rgba(29,18,8,0.9);
+  border:1px solid rgba(200,146,42,0.3);
+  border-radius:4px;
+  padding:2rem 2.5rem;
+  width:min(420px,100%);
+  text-align:center;
+}
+.room-code-display{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:3rem;letter-spacing:0.3em;
+  color:var(--coyote);
+  border:2px dashed rgba(200,146,42,0.3);
+  padding:0.5rem 1.5rem;border-radius:4px;
+  margin:0.5rem 0;
+  cursor:pointer;
+}
+#waiting-players{list-style:none;margin:1rem 0;display:flex;flex-direction:column;gap:0.4rem;}
+#waiting-players li{
+  background:rgba(200,146,42,0.08);
+  border-left:3px solid var(--amber);
+  padding:0.4rem 0.8rem;border-radius:0 3px 3px 0;
+  font-size:0.95rem;
+}
+
+/* ══════════════ GAME SCREEN ══════════════ */
+#screen-game{
+  min-height:100vh;
+  display:grid;
+  grid-template-rows:auto 1fr auto auto;
+  padding:1rem;gap:0.75rem;
+}
+.game-header{
+  display:flex;justify-content:space-between;align-items:center;
+  border-bottom:1px solid rgba(200,146,42,0.2);
+  padding-bottom:0.5rem;
+}
+.game-logo{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:1.8rem;color:var(--coyote);letter-spacing:0.1em;
+}
+.round-badge{
+  font-family:'Special Elite',cursive;
+  color:var(--sand);font-size:0.8rem;opacity:0.6;
+}
+
+/* 他プレイヤーエリア */
+#others-cards{
+  display:flex;flex-wrap:wrap;gap:0.75rem;
+  align-items:center;justify-content:center;
+  padding:0.5rem;
+}
+.player-card{
+  display:flex;flex-direction:column;align-items:center;gap:0.3rem;
+  background:rgba(29,18,8,0.7);
+  border:1px solid rgba(200,146,42,0.25);
+  border-radius:6px;padding:0.75rem 1rem;
+  min-width:90px;
+  transition:border-color 0.2s, box-shadow 0.2s;
+}
+.player-card.active-turn{
+  border-color:var(--amber);
+  box-shadow:0 0 16px rgba(200,146,42,0.3);
+}
+.card-face{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:2.2rem;
+  color:var(--sand);
+  min-width:50px;text-align:center;
+  background:rgba(0,0,0,0.3);
+  border:1px solid rgba(200,146,42,0.15);
+  border-radius:4px;padding:0.2rem 0.5rem;
+}
+.player-label{font-size:0.78rem;color:var(--sand);opacity:0.7;text-align:center;}
+.hearts{ display:flex;gap:2px;}
+.heart{color:var(--rust);font-size:0.85rem;}
+.heart.empty{opacity:0.2;}
+
+/* 自分エリア */
+.my-area{
+  display:flex;align-items:center;justify-content:center;gap:1rem;
+  background:rgba(29,18,8,0.8);
+  border:1px solid rgba(200,146,42,0.2);
+  border-radius:6px;padding:0.75rem 1.5rem;
+}
+#my-card-back{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:3rem;color:var(--night);
+  background:var(--amber);
+  width:60px;height:80px;display:flex;align-items:center;justify-content:center;
+  border-radius:4px;
+  box-shadow:0 4px 12px rgba(0,0,0,0.5);
+  user-select:none;
+}
+.my-info{display:flex;flex-direction:column;gap:0.3rem;}
+#my-name-tag{font-weight:700;font-size:1rem;}
+#my-hearts{display:flex;gap:3px;font-size:1.2rem;}
+
+/* 宣言エリア */
+.call-area{
+  text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:0.3rem;
+}
+.call-label{
+  font-family:'Special Elite',cursive;
+  font-size:0.75rem;letter-spacing:0.2em;color:var(--sand);opacity:0.6;
+  text-transform:uppercase;
+}
+#current-call{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:3.5rem;color:var(--coyote);
+  line-height:1;
+  text-shadow:0 0 20px rgba(212,129,58,0.5);
+}
+#turn-indicator{
+  font-size:0.82rem;color:var(--sand);opacity:0.7;
+  font-family:'Special Elite',cursive;letter-spacing:0.1em;
+}
+
+/* アクションパネル */
+#action-panel{
+  display:flex;flex-direction:column;gap:0.5rem;
+  padding-bottom:0.5rem;
+}
+.call-row{display:flex;gap:0.5rem;align-items:center;}
+.call-input{
+  flex:1;text-align:center;font-size:1.4rem;font-family:'Bebas Neue',sans-serif;
+  background:rgba(0,0,0,0.4);
+  border:1px solid rgba(200,146,42,0.3);
+  border-radius:3px;color:var(--bone);padding:0.4rem;
+}
+.waiting-msg{text-align:center;color:var(--sand);opacity:0.5;font-family:'Special Elite',cursive;letter-spacing:0.1em;}
+
+/* ══════════════ RESOLUTION ══════════════ */
+#screen-resolution{
+  min-height:100vh;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:1.5rem 1rem;gap:1rem;
+}
+#resolution-panel{
+  display:flex;flex-wrap:wrap;gap:0.75rem;
+  justify-content:center;align-items:flex-start;
+  max-width:700px;
+}
+.reveal-card{
+  display:flex;flex-direction:column;align-items:center;gap:0.4rem;
+  background:rgba(29,18,8,0.8);
+  border:1px solid rgba(200,146,42,0.3);
+  border-radius:6px;padding:1rem;
+  min-width:80px;
+}
+.card-face-big{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:2.8rem;color:var(--sand);
+  background:rgba(0,0,0,0.3);
+  border:1px solid rgba(200,146,42,0.2);
+  border-radius:4px;padding:0.3rem 0.8rem;
+}
+.drawn-info{
+  width:100%;text-align:center;
+  color:var(--sand);font-family:'Special Elite',cursive;
+  font-size:0.9rem;opacity:0.8;
+}
+.result-box{
+  width:100%;text-align:center;
+  background:rgba(29,18,8,0.9);
+  border:1px solid rgba(168,75,47,0.4);
+  border-radius:4px;padding:1rem;
+  font-size:1rem;
+}
+.loser-msg{
+  color:#e74c3c;font-weight:700;
+  font-family:'Bebas Neue',sans-serif;
+  font-size:1.4rem;letter-spacing:0.1em;margin-top:0.5rem;
+}
+.winner-msg{
+  font-family:'Bebas Neue',sans-serif;
+  font-size:2rem;letter-spacing:0.15em;
+  color:var(--amber);
+  text-shadow:0 0 20px rgba(200,146,42,0.5);
+  text-align:center;
+}
+
+/* ══════════════ ANIMATIONS ══════════════ */
+@keyframes shake{
+  0%,100%{transform:translateX(0);}
+  20%,60%{transform:translateX(-6px);}
+  40%,80%{transform:translateX(6px);}
+}
+.shake{animation:shake 0.4s ease;}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
+.screen:not(.hidden){animation:fadeIn 0.35s ease;}
+
+/* ══════════════ SETUP WARNING ══════════════ */
+.config-warning{
+  background:rgba(168,75,47,0.15);
+  border:1px solid rgba(168,75,47,0.5);
+  border-radius:4px;
+  padding:0.75rem 1rem;
+  font-size:0.78rem;
+  color:#e07050;
+  line-height:1.6;
+  text-align:left;
+}
+.config-warning code{
+  background:rgba(0,0,0,0.3);
+  padding:0 0.3em;border-radius:2px;
+  font-size:0.9em;
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════ LOBBY ══════════════ -->
+<section class="screen" id="screen-lobby">
+  <div style="text-align:center;">
+    <div class="game-title">COYOTE</div>
+    <div class="game-subtitle">コヨーテ — ONLINE</div>
+  </div>
+
+  <div class="card-box">
+    <div class="config-warning">
+      ⚠️ <strong>初回セットアップ：</strong>
+      このファイルの先頭 <code>&lt;script type="module"&gt;</code> 内の
+      <code>firebaseConfig</code> に、あなたの Firebase プロジェクトの設定を貼り付けてください。
+      また Firestore のルールで <code>read/write: true</code> を許可してください。
+    </div>
+
+    <div>
+      <div class="inp-label">プレイヤー名</div>
+      <input type="text" id="inp-name" placeholder="名前を入力" maxlength="16">
+    </div>
+
+    <button class="btn-primary" id="btn-create">部屋を作る</button>
+
+    <div class="divider">または</div>
+
+    <div>
+      <div class="inp-label">ルームコードで参加</div>
+      <div class="join-row">
+        <input type="text" id="inp-room" placeholder="XXXXXX" maxlength="6" style="text-transform:uppercase;letter-spacing:0.2em;">
+        <button class="btn-primary" id="btn-join" style="width:auto;padding:0 1.2rem;">参加</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ WAITING ══════════════ -->
+<section class="screen hidden" id="screen-waiting">
+  <div style="text-align:center;">
+    <div class="game-title" style="font-size:3rem;">COYOTE</div>
+  </div>
+  <div class="card-box">
+    <div style="text-align:center;font-family:'Special Elite',cursive;color:var(--sand);opacity:0.7;letter-spacing:0.15em;font-size:0.8rem;">
+      ルームコード
+    </div>
+    <div class="room-code-display" id="room-code">——</div>
+    <button class="btn-secondary" id="btn-copy" style="width:100%;font-family:'Noto Sans JP',sans-serif;font-size:0.9rem;">コピー</button>
+
+    <div style="margin-top:0.5rem;">
+      <div class="inp-label">参加中のプレイヤー</div>
+      <ul id="waiting-players"></ul>
+    </div>
+
+    <button class="btn-primary" id="btn-start" style="display:none;">ゲーム開始</button>
+    <div id="wait-msg" style="text-align:center;color:var(--sand);opacity:0.5;font-size:0.85rem;font-family:'Special Elite',cursive;">
+      ホストがゲームを開始するのを待っています…
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ GAME ══════════════ -->
+<section class="screen hidden" id="screen-game">
+  <div class="game-header">
+    <div class="game-logo">COYOTE</div>
+    <div class="round-badge" id="round-badge">ROUND —</div>
+  </div>
+
+  <!-- 他プレイヤーのカード（見える） -->
+  <div id="others-cards"></div>
+
+  <!-- 宣言値 -->
+  <div class="call-area">
+    <div class="call-label">現在の宣言</div>
+    <div id="current-call">—</div>
+    <div id="turn-indicator"></div>
+  </div>
+
+  <!-- 自分のカード（見えない）& アクション -->
+  <div>
+    <div class="my-area">
+      <div id="my-card-back">？</div>
+      <div class="my-info">
+        <div id="my-name-tag"></div>
+        <div id="my-hearts"></div>
+      </div>
+    </div>
+    <div id="action-panel" style="margin-top:0.75rem;"></div>
+  </div>
+</section>
+
+<!-- ══════════════ RESOLUTION ══════════════ -->
+<section class="screen hidden" id="screen-resolution">
+  <div class="game-title" style="font-size:3rem;text-align:center;">判定</div>
+  <div id="resolution-panel"></div>
+</section>
+
+</body>
+</html>
