@@ -149,16 +149,18 @@ async function startNewGame(order, life=3){
   for(const pid of order){
     await setDoc(doc(collection(rRef,"players"),pid),{life,isAlive:true},{merge:true});
   }
-  // ゲーム開始時は山札をリセット
+  // ゲーム開始時は山札・ラウンドをリセットしてからdealRound
   await updateDoc(rRef,{deck:[], round:0});
-  await dealRound(0, 0, order);
+  // roomDataが古いままなので直接新デッキを渡す
+  await dealRound(0, 0, order, []);
 }
 
-async function dealRound(startIdx, turnIdx, order){
+async function dealRound(startIdx, turnIdx, order, deckOverride=null){
   const rRef = doc(db,"rooms",roomId);
 
-  // 既存の山札を引き継ぐ。なければ新しくシャッフル（1ラウンド目 or RESET後）
-  let deck = (roomData?.deck?.length > 0) ? [...roomData.deck] : shuffle(CARD_POOL);
+  // 明示的に渡されたデッキ > 既存の山札 > 新規シャッフル
+  let deck = deckOverride !== null ? (deckOverride.length > 0 ? deckOverride : shuffle(CARD_POOL))
+           : (roomData?.deck?.length > 0 ? [...roomData.deck] : shuffle(CARD_POOL));
   const alive = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
 
   // カードを先に抜いてからdeckを保存
@@ -166,6 +168,10 @@ async function dealRound(startIdx, turnIdx, order){
   for(const pid of alive){
     cards[pid] = deck.pop();
   }
+
+  // ラウンド数はFirestoreから最新値を取得して加算（staleなroomDataに依存しない）
+  const latestSnap = await getDoc(rRef);
+  const latestRound = latestSnap.exists() ? (latestSnap.data().round||0) : 0;
 
   // deck保存（配布済みで枚数が減った状態）とラウンド情報を先に書く
   await updateDoc(rRef,{
@@ -179,7 +185,7 @@ async function dealRound(startIdx, turnIdx, order){
     hasCall:false,
     turnIndex: turnIdx,
     startPlayerIndex: startIdx,
-    round: (roomData?.round||0)+1,
+    round: latestRound + 1,
     playersOrder: order,
   });
 
