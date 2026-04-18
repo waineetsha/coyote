@@ -445,8 +445,14 @@ async function resolveRound(){
 
   const nextState = stillAlive.length<=1 ? "GAME_END" : "ROUND_END";
 
-  // RESETカードがあった場合はラウンド後に山札を再構築
+  // 場のカードを捨て札へ（drawnCardも含む）
+  const playedCards = alive.map(pid=>playersData[pid]?.card).filter(c=>c!==null&&c!==undefined);
+  if(drawnCard !== null && drawnCard !== undefined) playedCards.push(drawnCard);
+  const newDiscard = [...(roomData.discard||[]), ...playedCards];
+
+  // RESETカードがあった場合はラウンド後に山札を再構築（捨て札も含めてフルリセット）
   const nextDeck = hasReset ? shuffle(CARD_POOL) : currentDeck;
+  const nextDiscard = hasReset ? [] : newDiscard;
 
   await updateDoc(rRef,{
     state:nextState,
@@ -454,6 +460,7 @@ async function resolveRound(){
     drawnCard:drawnCard,
     loserPlayerId:loserPid,
     deck: nextDeck,
+    discard: nextDiscard,
   });
 }
 
