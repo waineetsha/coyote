@@ -99,6 +99,18 @@ document.getElementById("btn-join").addEventListener("click", async()=>{
   const code = document.getElementById("inp-room").value.trim().toUpperCase();
   if(!myName){ shake("inp-name"); return; }
   if(!code){ shake("inp-room"); return; }
+  await joinRoom(myName, code);
+});
+
+document.getElementById("btn-join-url").addEventListener("click", async()=>{
+  myName = document.getElementById("inp-name-join").value.trim();
+  const code = document.getElementById("inp-room").value.trim().toUpperCase();
+  if(!myName){ shake("inp-name-join"); return; }
+  await joinRoom(myName, code);
+});
+
+async function joinRoom(name, code){
+  myName = name;
   roomId = code;
   const rRef = doc(db,"rooms",roomId);
   const snap = await getDoc(rRef);
@@ -112,7 +124,7 @@ document.getElementById("btn-join").addEventListener("click", async()=>{
   subscribeRoom();
   document.getElementById("room-code").textContent = roomId;
   show("waiting");
-});
+}
 
 document.getElementById("btn-copy").addEventListener("click",()=>{
   navigator.clipboard.writeText(roomId).then(()=>{
@@ -459,7 +471,11 @@ function shake(id){
 
 // ─── 初期表示 ─────────────────────────────────────
 const _urlRoom = new URLSearchParams(location.search).get("room");
-if(_urlRoom) document.getElementById("inp-room").value = _urlRoom.toUpperCase();
+if(_urlRoom){
+  document.getElementById("inp-room").value = _urlRoom.toUpperCase();
+  document.getElementById("lobby-full").classList.add("hidden");
+  document.getElementById("lobby-join-only").classList.remove("hidden");
+}
 show("lobby");
 </script>
 
@@ -813,7 +829,8 @@ input:focus{ border-color:var(--amber); }
     <div class="game-subtitle">コヨーテ — ONLINE</div>
   </div>
 
-  <div class="card-box">
+  <!-- 通常ロビー -->
+  <div class="card-box" id="lobby-full">
     <div>
       <div class="inp-label">プレイヤー名</div>
       <input type="text" id="inp-name" placeholder="名前を入力" maxlength="16">
@@ -830,6 +847,18 @@ input:focus{ border-color:var(--amber); }
         <button class="btn-primary" id="btn-join" style="width:auto;padding:0 1.2rem;">参加</button>
       </div>
     </div>
+  </div>
+
+  <!-- URL参加専用ロビー（?room=XXX のときだけ表示） -->
+  <div class="card-box hidden" id="lobby-join-only">
+    <div style="text-align:center;font-family:'Special Elite',cursive;color:var(--sand);opacity:0.6;font-size:0.8rem;letter-spacing:0.15em;">
+      招待されました
+    </div>
+    <div>
+      <div class="inp-label">プレイヤー名</div>
+      <input type="text" id="inp-name-join" placeholder="名前を入力" maxlength="16">
+    </div>
+    <button class="btn-primary" id="btn-join-url">ゲームに参加する</button>
   </div>
 </section>
 
