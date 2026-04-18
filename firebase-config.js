@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════
 // ★ ここにあなたのFirebase設定を貼り付けてください ★
 // ════════════════════════════════════════════════
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyAO5TuFOawHyQAA5hkKAPO5s8JdUZW1SfI",
   authDomain: "who-ate--the-cheese.firebaseapp.com",
   projectId: "who-ate--the-cheese",
