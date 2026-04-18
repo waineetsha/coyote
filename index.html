@@ -235,6 +235,10 @@ function renderGame(){
   const isMyTurn = turnPid === myId;
   const me = playersData[myId];
 
+  // ヘッダー更新
+  document.getElementById("round-badge").textContent = `ROUND ${roomData.round||"—"}`;
+  document.getElementById("deck-count").textContent  = `🂠 ${(roomData.deck||[]).length}枚`;
+
   // 自分のカード（見えない）
   document.getElementById("my-card-back").textContent = "？";
   document.getElementById("my-name-tag").textContent  = me?.name||"";
@@ -458,7 +462,7 @@ function formatCard(c){
   if(c==="X2") return "×2";
   if(c==="MAX0") return "MAX=0";
   if(c==="?") return "?";
-  if(c==="RESET") return "RESET";
+  if(c==="RESET") return "RESET(0)";
   return c;
 }
 function heartsHtml(n){
@@ -928,7 +932,10 @@ input:focus{ border-color:var(--amber); }
 <section class="screen hidden" id="screen-game">
   <div class="game-header">
     <div class="game-logo">COYOTE</div>
-    <div class="round-badge" id="round-badge">ROUND —</div>
+    <div style="display:flex;align-items:center;gap:1rem;">
+      <div class="round-badge" id="deck-count">🂠 —</div>
+      <div class="round-badge" id="round-badge">ROUND —</div>
+    </div>
   </div>
 
   <!-- 他プレイヤーのカード（見える） -->
