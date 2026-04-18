@@ -17,13 +17,12 @@ import { getFirestore, doc, collection, setDoc, getDoc, updateDoc, onSnapshot, r
 // ★ ここにあなたのFirebase設定を貼り付けてください ★
 // ════════════════════════════════════════════════
 const firebaseConfig = {
-  apiKey: "AIzaSyAO5TuFOawHyQAA5hkKAPO5s8JdUZW1SfI",
-  authDomain: "who-ate--the-cheese.firebaseapp.com",
-  projectId: "who-ate--the-cheese",
-  storageBucket: "who-ate--the-cheese.firebasestorage.app",
-  messagingSenderId: "135374886454",
-  appId: "1:135374886454:web:4c90390dcc64763b872a97",
-  measurementId: "G-W6CJMF0NPX"
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
 };
 // ════════════════════════════════════════════════
 
@@ -117,7 +116,14 @@ document.getElementById("btn-join").addEventListener("click", async()=>{
 document.getElementById("btn-copy").addEventListener("click",()=>{
   navigator.clipboard.writeText(roomId).then(()=>{
     const b=document.getElementById("btn-copy");
-    b.textContent="コピー済！"; setTimeout(()=>b.textContent="コピー",1500);
+    b.textContent="コピー済！"; setTimeout(()=>b.textContent="コードをコピー",1500);
+  });
+});
+document.getElementById("btn-copy-url").addEventListener("click",()=>{
+  const url = `${location.origin}${location.pathname}?room=${roomId}`;
+  navigator.clipboard.writeText(url).then(()=>{
+    const b=document.getElementById("btn-copy-url");
+    b.textContent="コピー済！"; setTimeout(()=>b.textContent="URLをコピー",1500);
   });
 });
 
@@ -451,6 +457,8 @@ function shake(id){
 }
 
 // ─── 初期表示 ─────────────────────────────────────
+const _urlRoom = new URLSearchParams(location.search).get("room");
+if(_urlRoom) document.getElementById("inp-room").value = _urlRoom.toUpperCase();
 show("lobby");
 </script>
 
@@ -792,22 +800,7 @@ input:focus{ border-color:var(--amber); }
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
 .screen:not(.hidden){animation:fadeIn 0.35s ease;}
 
-/* ══════════════ SETUP WARNING ══════════════ */
-.config-warning{
-  background:rgba(168,75,47,0.15);
-  border:1px solid rgba(168,75,47,0.5);
-  border-radius:4px;
-  padding:0.75rem 1rem;
-  font-size:0.78rem;
-  color:#e07050;
-  line-height:1.6;
-  text-align:left;
-}
-.config-warning code{
-  background:rgba(0,0,0,0.3);
-  padding:0 0.3em;border-radius:2px;
-  font-size:0.9em;
-}
+
 </style>
 </head>
 <body>
@@ -820,13 +813,6 @@ input:focus{ border-color:var(--amber); }
   </div>
 
   <div class="card-box">
-    <div class="config-warning">
-      ⚠️ <strong>初回セットアップ：</strong>
-      このファイルの先頭 <code>&lt;script type="module"&gt;</code> 内の
-      <code>firebaseConfig</code> に、あなたの Firebase プロジェクトの設定を貼り付けてください。
-      また Firestore のルールで <code>read/write: true</code> を許可してください。
-    </div>
-
     <div>
       <div class="inp-label">プレイヤー名</div>
       <input type="text" id="inp-name" placeholder="名前を入力" maxlength="16">
@@ -856,7 +842,10 @@ input:focus{ border-color:var(--amber); }
       ルームコード
     </div>
     <div class="room-code-display" id="room-code">——</div>
-    <button class="btn-secondary" id="btn-copy" style="width:100%;font-family:'Noto Sans JP',sans-serif;font-size:0.9rem;">コピー</button>
+    <div style="display:flex;gap:0.5rem;">
+      <button class="btn-secondary" id="btn-copy" style="flex:1;font-family:'Noto Sans JP',sans-serif;font-size:0.9rem;">コードをコピー</button>
+      <button class="btn-secondary" id="btn-copy-url" style="flex:1;font-family:'Noto Sans JP',sans-serif;font-size:0.9rem;">URLをコピー</button>
+    </div>
 
     <div style="margin-top:0.5rem;">
       <div class="inp-label">参加中のプレイヤー</div>
