@@ -8,14 +8,24 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@400;700&family=Special+Elite&display=swap" rel="stylesheet">
 
 <!-- Firebase -->
+<!-- ★ 設定はこのscriptタグの中だけ編集してください ★ -->
+<script>
+window.FIREBASE_CONFIG = {
+  apiKey:            "YOUR_API_KEY",
+  authDomain:        "YOUR_PROJECT.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+</script>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, collection, setDoc, getDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion, arrayRemove, deleteDoc, getDocs }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig } from "./firebase-config.js";
-
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(window.FIREBASE_CONFIG);
 const db  = getFirestore(app);
 
 // ─── カード定義 ───────────────────────────────────
@@ -331,13 +341,14 @@ function renderResolution(){
 // ─── アクション ───────────────────────────────────
 window.adjustCall = function(delta){
   const inp = document.getElementById("call-input");
-  const min = parseInt(inp.min)||1;
-  inp.value = Math.max(min, (parseInt(inp.value)||min)+delta);
+  const min = inp.min !== "" ? parseInt(inp.min) : 0;
+  const cur = inp.value !== "" ? parseInt(inp.value) : min;
+  inp.value = Math.max(min, cur + delta);
 };
 
 window.doCall = async function(){
   const val = parseInt(document.getElementById("call-input").value);
-  const min = roomData.currentCall > 0 ? roomData.currentCall+1 : 1;
+  const min = roomData.hasCall ? roomData.currentCall+1 : 0;
   if(val < min){ alert(`${min}以上を宣言してください`); return; }
   const rRef = doc(db,"rooms",roomId);
   const order = roomData.playersOrder||[];
