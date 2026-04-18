@@ -147,12 +147,18 @@ document.getElementById("btn-start").addEventListener("click", async()=>{
 
 async function startNewGame(order, life=3){
   const rRef = doc(db,"rooms",roomId);
+  // 全員ライフ・カードリセット
   for(const pid of order){
-    await setDoc(doc(collection(rRef,"players"),pid),{life,isAlive:true},{merge:true});
+    await setDoc(doc(collection(rRef,"players"),pid),{life,isAlive:true,card:null},{merge:true});
   }
-  // ゲーム開始時は山札・ラウンドをリセットしてからdealRound
-  await updateDoc(rRef,{deck:[], round:0});
-  // roomDataが古いままなので直接新デッキを渡す
+  // ルーム状態を完全リセット
+  await updateDoc(rRef,{
+    deck:[], discard:[], round:0,
+    currentCall:0, previousCall:0,
+    coyotePlayerId:null, loserPlayerId:null,
+    resolvedTotal:null, drawnCard:null,
+    hasCall:false, turnIndex:0, startPlayerIndex:0,
+  });
   await dealRound(0, 0, order, []);
 }
 
