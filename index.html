@@ -177,6 +177,7 @@ async function dealRound(startIdx, turnIdx, order){
     currentCall:0,
     previousCall:0,
     coyotePlayerId:null,
+    hasCall:false,
     turnIndex: turnIdx,
     startPlayerIndex: startIdx,
     round: (roomData?.round||0)+1,
@@ -261,7 +262,7 @@ function renderGame(){
 
   // 現在の宣言
   document.getElementById("current-call").textContent =
-    roomData.currentCall > 0 ? roomData.currentCall : "—";
+    roomData.currentCall != null && roomData.currentCall !== "" ? roomData.currentCall : "—";
 
   // ターン表示
   document.getElementById("turn-indicator").textContent =
@@ -271,7 +272,7 @@ function renderGame(){
   const panel = document.getElementById("action-panel");
   panel.innerHTML="";
   if(isMyTurn){
-    const minCall = roomData.currentCall > 0 ? roomData.currentCall+1 : 1;
+    const minCall = roomData.currentCall > 0 ? roomData.currentCall+1 : 0;
     panel.innerHTML=`
       <div class="call-row">
         <button class="btn-secondary" onclick="adjustCall(-1)">▼</button>
@@ -279,8 +280,7 @@ function renderGame(){
         <button class="btn-secondary" onclick="adjustCall(1)">▲</button>
       </div>
       <button class="btn-primary" onclick="doCall()">宣言する</button>
-      ${roomData.currentCall>0?'<button class="btn-danger" onclick="doCoyote()">🐺 コヨーテ！</button>':""}
-    `;
+      ${roomData.hasCall ? '<button class="btn-danger" onclick="doCoyote()">🐺 コヨーテ！</button>' : ""}    `;
   } else {
     panel.innerHTML=`<p class="waiting-msg">他のプレイヤーを待っています…</p>`;
   }
@@ -346,7 +346,7 @@ window.doCall = async function(){
   const order = roomData.playersOrder||[];
   const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
   const nextTurn = (roomData.turnIndex+1)%alive.length;
-  await updateDoc(rRef,{previousCall:roomData.currentCall, currentCall:val, turnIndex:nextTurn});
+  await updateDoc(rRef,{previousCall:roomData.currentCall, currentCall:val, turnIndex:nextTurn, hasCall:true});
 };
 
 window.doCoyote = async function(){
