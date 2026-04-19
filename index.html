@@ -140,9 +140,19 @@ document.querySelectorAll(".life-opt").forEach(btn=>{
 });
 
 document.getElementById("btn-start").addEventListener("click", async()=>{
-  const order = roomData.playersOrder;
+  const rRef = doc(db,"rooms",roomId);
+  // playersサブコレクションから全員取得して順番を再構築
+  const psSnap = await getDocs(collection(rRef,"players"));
+  const allPlayers = {};
+  psSnap.forEach(d=>{ allPlayers[d.id]=d.data(); });
+  // 参加順（joinedAt）でソート
+  const order = Object.keys(allPlayers).sort((a,b)=>{
+    const ta = allPlayers[a]?.joinedAt?.toMillis?.()||0;
+    const tb = allPlayers[b]?.joinedAt?.toMillis?.()||0;
+    return ta-tb;
+  });
   if(order.length < 2){ alert("2人以上必要です"); return; }
-  await startNewGame(order, selectedLife);
+  await startNewGame(shuffle(order), selectedLife);
 });
 
 async function startNewGame(order, life=3){
@@ -151,13 +161,14 @@ async function startNewGame(order, life=3){
   for(const pid of order){
     await setDoc(doc(collection(rRef,"players"),pid),{life,isAlive:true,card:null},{merge:true});
   }
-  // ルーム状態を完全リセット
+  // ルーム状態を完全リセット（playersOrderも全員で上書き）
   await updateDoc(rRef,{
     deck:[], discard:[], round:0,
     currentCall:0, previousCall:0,
     coyotePlayerId:null, loserPlayerId:null,
     resolvedTotal:null, drawnCard:null,
     hasCall:false, turnIndex:0, startPlayerIndex:0,
+    playersOrder: order,
   });
   await dealRound(0, 0, order, []);
 }
