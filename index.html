@@ -170,21 +170,23 @@ async function startNewGame(order, life=3){
     hasCall:false, turnIndex:0, startPlayerIndex:0,
     playersOrder: order,
   });
-  await dealRound(0, 0, order, []);
+  await dealRound(0, 0, order, [], order);
 }
 
-async function dealRound(startIdx, turnIdx, order, deckOverride=null){
+async function dealRound(startIdx, turnIdx, order, deckOverride=null, aliveOverride=null){
   const rRef = doc(db,"rooms",roomId);
 
-  // 明示的に渡されたデッキを使う。空なら新規シャッフル（ゲーム開始 or 山札切れ）
-  // deckOverride=nullの場合はroomData.deckを使う（通常は使わない、常に明示的に渡す）
   let deck;
   if(deckOverride !== null){
     deck = deckOverride.length > 0 ? [...deckOverride] : shuffle(CARD_POOL);
   } else {
     deck = roomData?.deck?.length > 0 ? [...roomData.deck] : shuffle(CARD_POOL);
   }
-  const alive = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
+
+  // aliveOverrideが渡された場合はそれを使う（playersDataの古いキャッシュに依存しない）
+  const alive = aliveOverride !== null
+    ? aliveOverride
+    : order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
 
   // カードを先に抜いてからdeckを保存
   const cards={};
