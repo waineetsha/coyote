@@ -506,9 +506,17 @@ async function resolveRound(){
 window.doNextRound = async function(){
   const state = roomData.state;
   if(state==="GAME_END"){
-    // ロビーへ
     const rRef = doc(db,"rooms",roomId);
-    await updateDoc(rRef,{state:"WAITING"});
+    // 全プレイヤーをplayersOrderに戻す
+    const psSnap = await getDocs(collection(rRef,"players"));
+    const allPlayers = {};
+    psSnap.forEach(d=>{ allPlayers[d.id]=d.data(); });
+    const fullOrder = Object.keys(allPlayers).sort((a,b)=>{
+      const ta = allPlayers[a]?.joinedAt?.toMillis?.()||0;
+      const tb = allPlayers[b]?.joinedAt?.toMillis?.()||0;
+      return ta-tb;
+    });
+    await updateDoc(rRef,{state:"WAITING", playersOrder: fullOrder});
     return;
   }
   // 次ラウンド: 敗者 or 敗者の次の生存者からスタート
