@@ -223,6 +223,7 @@ async function dealRound(startIdx, turnIdx, order, deckOverride=null, aliveOverr
     coyotePlayerId:null,
     hasCall:false,
     turnIndex: turnIdx,
+    currentTurnPlayerId: alive[turnIdx % alive.length] || null,
     startPlayerIndex: startIdx,
     round: latestRound + 1,
     playersOrder: order,
@@ -292,7 +293,7 @@ function renderGame(){
     show("dealing");
     return;
   }
-  const turnPid = alive[roomData.turnIndex % alive.length];
+  const turnPid = roomData.currentTurnPlayerId || alive[roomData.turnIndex % alive.length];
   const isMyTurn = turnPid === myId;
   const me = playersData[myId];
 
@@ -410,9 +411,10 @@ window.doCall = async function(){
   if(isNaN(val) || val < min){ alert(`${min}以上を宣言してください`); return; }
   const rRef = doc(db,"rooms",roomId);
   const order = roomData.playersOrder||[];
-  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
-  const nextTurn = (roomData.turnIndex+1)%alive.length;
-  await updateDoc(rRef,{previousCall:roomData.currentCall, currentCall:val, turnIndex:nextTurn, hasCall:true});
+  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
+  const nextTurnIdx = (roomData.turnIndex+1)%alive.length;
+  const nextTurnPlayerId = alive[nextTurnIdx];
+  await updateDoc(rRef,{previousCall:roomData.currentCall, currentCall:val, turnIndex:nextTurnIdx, currentTurnPlayerId:nextTurnPlayerId, hasCall:true});
 };
 
 window.doCoyote = async function(){
@@ -425,7 +427,7 @@ window.doCoyote = async function(){
 async function resolveRound(){
   const rRef = doc(db,"rooms",roomId);
   const order = roomData.playersOrder||[];
-  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
+  const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false&&(playersData[pid]?.life||0)>0);
 
   // カード収集
   let total = 0;
