@@ -304,6 +304,9 @@ function renderGame(){
   document.getElementById("my-card-back").textContent = "？";
   document.getElementById("my-name-tag").textContent  = me?.name||"";
   renderHearts("my-hearts", me?.life||0);
+  // 自分のターンのとき自分エリアをハイライト
+  const myArea = document.querySelector(".my-area");
+  if(myArea){ myArea.classList.toggle("active-turn", isMyTurn); }
 
   // 他プレイヤーカード
   const othersDiv = document.getElementById("others-cards");
@@ -334,7 +337,7 @@ function renderGame(){
   const panel = document.getElementById("action-panel");
   panel.innerHTML="";
   if(isMyTurn){
-    const minCall = roomData.currentCall > 0 ? roomData.currentCall+1 : 0;
+    const minCall = roomData.hasCall ? roomData.currentCall+1 : 1;
     panel.innerHTML=`
       <div class="call-row">
         <button class="btn-secondary" onclick="adjustCall(-1)">▼</button>
@@ -403,8 +406,8 @@ window.adjustCall = function(delta){
 
 window.doCall = async function(){
   const val = parseInt(document.getElementById("call-input").value);
-  const min = roomData.hasCall ? roomData.currentCall+1 : 0;
-  if(val < min){ alert(`${min}以上を宣言してください`); return; }
+  const min = roomData.hasCall ? roomData.currentCall+1 : 1;
+  if(isNaN(val) || val < min){ alert(`${min}以上を宣言してください`); return; }
   const rRef = doc(db,"rooms",roomId);
   const order = roomData.playersOrder||[];
   const alive  = order.filter(pid=>playersData[pid]?.isAlive!==false);
@@ -857,6 +860,10 @@ input:focus{ border-color:var(--amber); }
   border-radius:3px;color:var(--bone);padding:0.4rem;
 }
 .waiting-msg{text-align:center;color:var(--sand);opacity:0.5;font-family:'Special Elite',cursive;letter-spacing:0.1em;}
+.my-area.active-turn{
+  border-color:var(--amber);
+  box-shadow:0 0 0 2px rgba(200,146,42,0.5);
+}
 
 /* ══════════════ RESOLUTION ══════════════ */
 #screen-resolution{
