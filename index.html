@@ -309,11 +309,14 @@ function renderGame(){
   const myArea = document.querySelector(".my-area");
   if(myArea){ myArea.classList.toggle("active-turn", isMyTurn); }
 
-  // 他プレイヤーカード
+  // 他プレイヤーカード：自分の次から時計回り順に並べる
   const othersDiv = document.getElementById("others-cards");
   othersDiv.innerHTML="";
-  for(const pid of alive){
-    if(pid===myId) continue;
+  const myAliveIdx = alive.indexOf(myId);
+  const othersOrdered = myAliveIdx === -1
+    ? alive.filter(pid=>pid!==myId)
+    : [...alive.slice(myAliveIdx+1), ...alive.slice(0, myAliveIdx)];
+  for(const pid of othersOrdered){
     const p = playersData[pid];
     const card = p?.card;
     const div = document.createElement("div");
